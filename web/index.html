@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Subtitle Studio</title>
+<link rel="stylesheet" href="/web/fonts/fonts.css">
+<link rel="stylesheet" href="/web/style.css">
+</head>
+<body>
+
+<!-- ============================================================ HOME === -->
+<section id="home" class="view">
+  <div class="home-wrap">
+    <canvas id="wordmark" width="1400" height="260" aria-label="Subtitle Studio"></canvas>
+
+    <div class="home-grid">
+      <div id="drop" class="drop" tabindex="0">
+        <input type="file" id="fileInput" accept="video/*,audio/*,.mkv,.mov,.m4a,.flac,.wav,.mp3,.aac,.ogg,.opus" hidden>
+        <div class="drop-inner">
+          <div class="drop-title">Drop a video or a song</div>
+          <p class="drop-sub">MP4, MOV, MKV, WebM, MP3, WAV, M4A, FLAC. It stays on this computer.</p>
+          <button class="btn primary" id="btnChoose">Choose a file</button>
+        </div>
+        <div class="drop-progress" hidden>
+          <div class="drop-file" id="dropFile"></div>
+          <div class="bar"><i id="uploadBar"></i></div>
+        </div>
+      </div>
+
+      <form class="opts" id="opts" onsubmit="return false">
+        <label class="field">
+          <span>Language</span>
+          <select id="optLang"></select>
+        </label>
+        <label class="check">
+          <input type="checkbox" id="optSep" checked>
+          <span><b>Isolate the vocal first</b><small>Best for songs. Pulls the voice off the beat before listening.</small></span>
+        </label>
+        <label class="field">
+          <span>Recognition</span>
+          <select id="optEngine"></select>
+        </label>
+        <label class="field">
+          <span>Your lyrics <em>optional</em></span>
+          <textarea id="optLyrics" rows="5" placeholder="Paste them and every line comes out exactly as you wrote it, timed to the track."></textarea>
+        </label>
+        <label class="field">
+          <span>Names &amp; slang to listen for <em>optional</em></span>
+          <input type="text" id="optHints" placeholder="Iration, Justiceman, pura vida, mae">
+        </label>
+      </form>
+    </div>
+
+    <footer class="status" id="envStatus"></footer>
+
+    <div class="recent" id="recentWrap" hidden>
+      <h2>Pick up where you left off</h2>
+      <ul id="recent"></ul>
+    </div>
+
+  </div>
+</section>
+
+<!-- ======================================================== PROCESSING === -->
+<div id="processing" class="overlay" hidden>
+  <div class="proc-card">
+    <h2 id="procTitle">Working on it</h2>
+    <ol class="steps" id="procSteps">
+      <li data-step="vocals">Isolating the vocal</li>
+      <li data-step="transcribe">Hearing every word</li>
+      <li data-step="lyrics">Placing your lyrics</li>
+    </ol>
+    <div class="bar big"><i id="procBar"></i></div>
+    <p class="proc-msg" id="procMsg">Starting...</p>
+    <ul class="warn" id="procWarn"></ul>
+    <div class="proc-actions"><button class="btn" id="procHide" hidden>Close</button></div>
+  </div>
+</div>
+
+<!-- ============================================================ EDITOR === -->
+<section id="editor" class="view" hidden>
+  <header class="top">
+    <button class="logo" id="btnHome" title="All projects">Subtitle Studio</button>
+    <input class="pname" id="projName" spellcheck="false" aria-label="Project name">
+    <span class="save-state" id="saveState"></span>
+    <div class="top-actions">
+      <button class="btn ghost icon" id="btnUndo" title="Undo (Ctrl+Z)" aria-label="Undo">&#8630;</button>
+      <button class="btn ghost icon" id="btnRedo" title="Redo (Ctrl+Shift+Z)" aria-label="Redo">&#8631;</button>
+      <button class="btn ghost" id="btnFind">Find &amp; replace</button>
+      <button class="btn ghost" id="btnLyrics">Use my lyrics</button>
+      <button class="btn ghost" id="btnRetranscribe">Transcribe again</button>
+      <button class="btn primary" id="btnExport">Export</button>
+    </div>
+  </header>
+
+  <main class="work">
+    <!-- transcript -->
+    <aside class="pane words-pane">
+      <div class="pane-head stacked">
+        <h3>Words</h3>
+        <span class="hint">Click a word to jump to it. Double-click a line to fix it. Alt-click a word to make it a key word.</span>
+      </div>
+      <div class="resync-bar" id="resyncBar" hidden>
+        <span id="resyncText"></span>
+        <button class="btn small" id="btnResync">Re-sync now</button>
+      </div>
+      <div class="lines" id="lines"></div>
+      <div class="pane-foot">
+        <label class="check small"><input type="checkbox" id="autoSync" checked><span>Re-sync a line to the audio after I edit it</span></label>
+      </div>
+    </aside>
+
+    <!-- stage -->
+    <section class="center">
+      <div class="stage-wrap" id="stageWrap">
+        <div class="stage" id="stage">
+          <video id="video" playsinline preload="auto"></video>
+          <canvas id="bgCanvas"></canvas>
+          <canvas id="overlay"></canvas>
+          <canvas id="safeCanvas"></canvas>
+          <div class="stage-note" id="stageNote" hidden></div>
+        </div>
+      </div>
+      <div class="transport">
+        <button class="btn icon play" id="btnPlay" title="Play / pause (Space)" aria-label="Play">&#9654;</button>
+        <span class="tc"><b id="tNow">0:00.0</b> / <span id="tDur">0:00</span></span>
+        <select id="rate" title="Playback speed">
+          <option value="0.5">0.5×</option><option value="0.75">0.75×</option><option value="1" selected>1×</option>
+        </select>
+        <span class="sp"></span>
+        <div class="frame-opts" id="frameOpts" hidden>
+          <select id="aspect" title="Frame shape for a song with no video">
+            <option value="1080x1920">9:16 Reels / TikTok</option>
+            <option value="1080x1350">4:5 Feed</option>
+            <option value="1080x1080">1:1 Square</option>
+            <option value="1920x1080">16:9 YouTube</option>
+          </select>
+          <input type="color" id="bgColor" value="#101012" title="Background colour">
+          <button class="btn small ghost" id="btnBgImg">Background image</button>
+          <button class="btn small ghost" id="btnBgClear" hidden>Remove image</button>
+          <input type="file" id="bgFile" accept="image/png,image/jpeg,image/webp" hidden>
+        </div>
+        <select id="safe" title="Show where each app's buttons and captions sit">
+          <option value="">No guides</option>
+          <option value="reels">Reels guides</option>
+          <option value="tiktok">TikTok guides</option>
+          <option value="shorts">Shorts guides</option>
+        </select>
+      </div>
+      <div class="tl-head">
+        <span class="hint">Drag a word's edge to retime it. Ctrl + scroll to zoom.</span>
+        <input type="range" id="zoom" min="8" max="600" value="90" aria-label="Timeline zoom">
+      </div>
+      <div class="timeline"><canvas id="tl"></canvas></div>
+    </section>
+
+    <!-- look -->
+    <aside class="pane look-pane">
+      <div class="pane-head"><h3>Look</h3><span class="hint" id="lookState"></span></div>
+      <div class="looks" id="looks"></div>
+      <div class="mylooks">
+        <div class="mylooks-head">
+          <h4>My looks</h4>
+          <button class="btn small ghost" id="btnSaveLook">Save this look</button>
+        </div>
+        <ul id="myLooks"></ul>
+      </div>
+      <div class="controls" id="controls"></div>
+    </aside>
+  </main>
+</section>
+
+<!-- ============================================================ DIALOGS === -->
+<dialog id="dlgExport" class="dlg">
+  <form method="dialog" class="dlg-body" id="exportForm">
+    <h2>Export</h2>
+    <fieldset class="formats" id="fmtSet">
+      <label><input type="radio" name="fmt" value="mp4" checked><span><b>Video with captions</b><small>MP4, captions burned in. Ready to post.</small></span></label>
+      <label><input type="radio" name="fmt" value="mov"><span><b>Captions only, transparent</b><small>ProRes 4444 .mov to lay over your edit in Premiere or After Effects.</small></span></label>
+      <label><input type="radio" name="fmt" value="srt"><span><b>Subtitle file</b><small>.srt for YouTube, Premiere, or any player. No styling.</small></span></label>
+    </fieldset>
+    <div class="row2" id="exportVideoOpts">
+      <label class="field"><span>Size</span><select id="exSize"></select></label>
+      <label class="field"><span>Frame rate</span><select id="exFps"></select></label>
+      <label class="field"><span>Quality</span><select id="exQuality"><option value="high" selected>High</option><option value="max">Maximum</option><option value="draft">Quick draft</option></select></label>
+    </div>
+    <label class="field"><span>File name</span><input type="text" id="exName" spellcheck="false"></label>
+    <div class="ex-progress" id="exProgress" hidden>
+      <div class="bar big"><i id="exBar"></i></div>
+      <p id="exMsg"></p>
+    </div>
+    <div class="dlg-actions">
+      <button type="button" class="btn ghost" id="exClose">Close</button>
+      <button type="button" class="btn ghost" id="exOpen" hidden>Show in folder</button>
+      <button type="button" class="btn primary" id="exGo">Export</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlgLyrics" class="dlg">
+  <form method="dialog" class="dlg-body">
+    <h2>Use my lyrics</h2>
+    <p class="dlg-sub">Paste the words as you wrote them, one line per bar or phrase. Section labels like [Chorus] are skipped. Your lines replace the current words and get timed to the track. Undo brings the old words back.</p>
+    <textarea id="lyricsText" rows="14" spellcheck="false"></textarea>
+    <div class="dlg-actions">
+      <button type="button" class="btn ghost" id="lyCancel">Cancel</button>
+      <button type="button" class="btn primary" id="lyGo">Place my lyrics</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlgRetrans" class="dlg">
+  <form method="dialog" class="dlg-body">
+    <h2>Transcribe again</h2>
+    <p class="dlg-sub">Runs recognition from scratch and replaces the current words. Undo brings them back.</p>
+    <label class="field"><span>Language</span><select id="rtLang"></select></label>
+    <label class="check"><input type="checkbox" id="rtSep" checked><span><b>Isolate the vocal first</b><small>Best for songs.</small></span></label>
+    <label class="field"><span>Recognition</span><select id="rtEngine"></select></label>
+    <label class="field"><span>Names &amp; slang to listen for</span><input type="text" id="rtHints"></label>
+    <div class="dlg-actions">
+      <button type="button" class="btn ghost" id="rtCancel">Cancel</button>
+      <button type="button" class="btn primary" id="rtGo">Transcribe</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlgFind" class="dlg small">
+  <form method="dialog" class="dlg-body">
+    <h2>Find &amp; replace</h2>
+    <label class="field"><span>Find</span><input type="text" id="fdFind" spellcheck="false"></label>
+    <label class="field"><span>Replace with</span><input type="text" id="fdRep" spellcheck="false"></label>
+    <label class="check small"><input type="checkbox" id="fdWhole" checked><span>Whole words only</span></label>
+    <p class="dlg-sub" id="fdCount"></p>
+    <div class="dlg-actions">
+      <button type="button" class="btn ghost" id="fdCancel">Close</button>
+      <button type="button" class="btn primary" id="fdGo">Replace all</button>
+    </div>
+  </form>
+</dialog>
+
+<div class="toast" id="toast" hidden></div>
+
+<script src="/web/presets.js"></script>
+<script src="/web/renderer.js"></script>
+<script src="/web/timeline.js"></script>
+<script src="/web/app.js"></script>
+</body>
+</html>

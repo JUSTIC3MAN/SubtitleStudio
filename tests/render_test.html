@@ -1,0 +1,51 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<link rel="stylesheet" href="../web/fonts/fonts.css">
+<style>body{margin:0;background:#222;display:flex;flex-wrap:wrap;gap:8px;padding:8px;font:12px sans-serif;color:#ccc}
+figure{margin:0}canvas{display:block;width:270px;height:480px}figcaption{padding:2px 0}</style>
+</head><body>
+<script src="../web/presets.js"></script>
+<script src="../web/renderer.js"></script>
+<script>
+const W = 1080, H = 1920;
+const sample = [
+  { words: [
+    { t: "I've", s: 0.30, e: 0.52, l: .5 }, { t: 'been', s: 0.52, e: 0.70, l: .4 }, { t: 'running', s: 0.70, e: 1.10, l: .9 },
+    { t: 'through', s: 1.12, e: 1.35, l: .5 }, { t: 'the', s: 1.35, e: 1.45, l: .3 }, { t: 'city,', s: 1.45, e: 1.95, l: .95 } ] },
+  { words: [
+    { t: 'chasing', s: 2.10, e: 2.50, l: .6 }, { t: 'every', s: 2.50, e: 2.80, l: .5 }, { t: 'single', s: 2.80, e: 3.15, l: .7 },
+    { t: 'dream', s: 3.15, e: 3.70, l: 1, k: 1 }, { t: 'I', s: 3.75, e: 3.85, l: .4 }, { t: 'had.', s: 3.85, e: 4.30, l: .6 } ] },
+];
+function bg(ctx) {
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#2a3346'); g.addColorStop(.55, '#8a6a52'); g.addColorStop(1, '#1d1a18');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  const r = ctx.createRadialGradient(W * .7, H * .35, 20, W * .7, H * .35, 700);
+  r.addColorStop(0, 'rgba(255,220,160,.9)'); r.addColorStop(1, 'rgba(255,220,160,0)');
+  ctx.fillStyle = r; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = 'rgba(255,255,255,.85)'; ctx.fillRect(W * .2, H * .58, W * .5, H * .08); // bright area behind captions
+}
+async function run() {
+  const fams = [...new Set(SS.PRESETS.map(p => p.style.font))];
+  await Promise.all(SS.PRESETS.map(p => document.fonts.load(`${p.style.italic ? 'italic ' : ''}${p.style.weight} 50px "${p.style.font}"`)));
+  const times = (window.TIMES || [0.6, 1.17, 2.2, 3.3]);
+  for (const p of SS.PRESETS) {
+    for (const t of times) {
+      const fig = document.createElement('figure');
+      const c = document.createElement('canvas'); c.width = W; c.height = H;
+      fig.appendChild(c);
+      const cap = document.createElement('figcaption'); cap.textContent = `${p.name} @ ${t}s`; fig.appendChild(cap);
+      document.body.appendChild(fig);
+      const ctx = c.getContext('2d');
+      bg(ctx);
+      const r = new SS.Renderer();
+      r.setSize(W, H); r.setLines(sample); r.setStyle(SS.presetStyle(p.id, false));
+      const key = r.render(ctx, t, 1);
+      cap.textContent += ' ' + key.slice(0, 18);
+    }
+  }
+  document.title = 'done';
+}
+run().catch(e => { document.title = 'error: ' + e.message; console.error(e); });
+</script>
+</body></html>

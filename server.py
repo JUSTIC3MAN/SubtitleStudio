@@ -166,7 +166,7 @@ def get_project(pid: str):
 @app.put("/api/projects/{pid}")
 async def put_project(pid: str, request: Request):
     body = await request.json()
-    allowed = {k: body[k] for k in ("name", "transcript", "style", "export") if k in body}
+    allowed = {k: body[k] for k in ("name", "transcript", "style", "export", "vertical") if k in body}
     try:
         cur = project.load(pid)
     except KeyError:

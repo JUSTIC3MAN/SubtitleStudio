@@ -48,6 +48,7 @@
     editing: -1, sel: null,
     needsDraw: true, uid: 1,
     bgImage: null,
+    view: 'wide', vert: { ...SS.VDEFAULT }, styles: { wide: null, vertical: null }, geo: null,
   };
   const renderer = new SS.Renderer();
   let timeline = null;
@@ -269,6 +270,12 @@
     setFrameSize();
     const landscape = S.W > S.H;
     S.style = j.style ? { ...SS.DEFAULT_STYLE, ...j.style } : SS.presetStyle('viral', landscape);
+    S.view = 'wide';
+    const vj = j.vertical || {};
+    S.vert = { ...SS.VDEFAULT, ...(vj.settings || {}) };
+    S.styles = { wide: S.style, vertical: vj.style ? { ...SS.DEFAULT_STYLE, ...vj.style } : null };
+    S.geo = null;
+    $('#viewTabs').hidden = !(S.kind === 'video' && S.W > S.H);
     try { S.myLooks = await GET('/api/presets'); } catch (e) { S.myLooks = []; }
 
     $('#home').hidden = true;
@@ -284,7 +291,9 @@
 
     renderer.setSize(S.W, S.H);
     renderer.setLines(S.lines);
-    renderer.setStyle(S.style);
+    applyStyle();
+    setViewUI();
+    buildVPanel();
     await ensureFont(S.style);
 
     setupMedia(j);
@@ -313,7 +322,8 @@
 
   function setFrameSize() {
     const info = S.project.media.info || {};
-    if (S.kind === 'video' && info.width && info.height) { S.W = info.width; S.H = info.height; }
+    if (S.view === 'vertical') { S.W = 1080; S.H = 1920; }
+    else if (S.kind === 'video' && info.width && info.height) { S.W = info.width; S.H = info.height; }
     else { const [w, h] = S.exportCfg.aspect.split('x').map(Number); S.W = w; S.H = h; }
   }
 
@@ -399,6 +409,11 @@
   }
 
   function drawBg() {
+    if (S.view === 'vertical') {
+      if (S.geo && video.readyState >= 2) SS.drawVertical(bctx, video, S.geo, bgc.width / S.W);
+      else if (S.geo) { bctx.fillStyle = '#000'; bctx.fillRect(0, 0, bgc.width, bgc.height); }
+      return;
+    }
     if (S.kind !== 'audio') return;
     bctx.setTransform(1, 0, 0, 1, 0, 0);
     bctx.fillStyle = S.exportCfg.bgColor || '#101012';
@@ -409,6 +424,104 @@
       const w = img.width * sc, h = img.height * sc;
       bctx.drawImage(img, (bgc.width - w) / 2, (bgc.height - h) / 2, w, h);
     }
+  }
+
+
+  /* ------------------------------------------------- wide / vertical -- */
+  // The vertical version keeps your look's fonts and colours but takes its size
+  // and placement from the portrait version of the same look.
+  function verticalStyleFrom(ws) {
+    const out = { ...ws };
+    if (ws._preset) {
+      const p = SS.presetStyle(ws._preset, false);
+      for (const k of ['size', 'x', 'y', 'maxWidth', 'maxWords', 'align']) out[k] = p[k];
+    } else out.size = +(ws.size * 0.8).toFixed(2);
+    return out;
+  }
+  function geoFor(view) {
+    const i = S.project.media.info || {};
+    return view === 'vertical' && i.width ? SS.verticalGeometry(S.vert, i.width, i.height) : null;
+  }
+  function styleFor(view) {
+    let st = view === S.view ? S.style : (S.styles[view] || (view === 'vertical' ? verticalStyleFrom(S.style) : S.style));
+    const g = geoFor(view);
+    if (g && S.vert.capMode === 'auto' && g.capY != null) st = { ...st, y: +(g.capY / 1920 * 100).toFixed(2) };
+    return st;
+  }
+  function applyStyle() {
+    S.geo = geoFor(S.view);
+    renderer.setStyle(styleFor(S.view));
+    S.needsDraw = true;
+  }
+  function setViewUI() {
+    $$('#viewTabs button').forEach((b) => b.classList.toggle('on', b.dataset.view === S.view));
+    video.style.visibility = S.kind === 'video' && S.view === 'wide' ? 'visible' : 'hidden';
+    $('#bgCanvas').style.display = S.kind === 'audio' || S.view === 'vertical' ? 'block' : 'none';
+    $('#vpanel').hidden = S.view !== 'vertical';
+  }
+  function setView(view) {
+    if (view === S.view) return;
+    S.styles[S.view] = S.style;
+    S.view = view;
+    if (view === 'vertical' && !S.styles.vertical) S.styles.vertical = verticalStyleFrom(S.styles.wide);
+    S.style = S.styles[view];
+    setFrameSize();
+    renderer.setSize(S.W, S.H);
+    applyStyle();
+    setViewUI();
+    layoutStage(); syncControls(); markLooks(); syncVPanel(); renderThumbsSoon();
+    scheduleSave();
+  }
+  $('#viewTabs').addEventListener('click', (e) => { const b = e.target.closest('button[data-view]'); if (b) setView(b.dataset.view); });
+
+  function buildVPanel() {
+    $('#vLayouts').innerHTML = SS.VLAYOUTS.map((l) => `<button class="vlay" data-id="${l.id}" title="${esc(l.blurb)}">${SS.verticalIcon(l.id)}<span>${esc(l.name)}</span></button>`).join('');
+    syncVPanel();
+  }
+  const VCTL = [
+    { k: 'videoY', show: ['blur', 'bars', 'zoom'] }, { k: 'pan', show: ['fill', 'zoom', 'stack'] },
+    { k: 'zoom', show: ['zoom', 'stack'] }, { k: 'blur', show: ['blur', 'zoom', 'stack'] },
+    { k: 'dim', show: ['blur', 'zoom', 'stack'] }, { k: 'barColor', show: ['bars'] },
+  ];
+  function syncVPanel() {
+    const L = S.vert.layout;
+    $$('#vLayouts .vlay').forEach((b) => b.classList.toggle('on', b.dataset.id === L));
+    const info = SS.VLAYOUTS.find((x) => x.id === L);
+    $('#vBlurb').textContent = info ? info.blurb : '';
+    for (const c of VCTL) {
+      const row = $(`#vpanel [data-vk="${c.k}"]`);
+      if (!row) continue;
+      row.hidden = !c.show.includes(L);
+      const inp = row.querySelector('input');
+      inp.value = S.vert[c.k];
+      const val = row.querySelector('.val');
+      if (val) val.textContent = c.k === 'zoom' ? (+S.vert.zoom).toFixed(2) + '×' : c.k === 'blur' ? Math.round(S.vert.blur) : Math.round(S.vert[c.k] * 100) + '%';
+    }
+    $('#vZoomLabel').textContent = L === 'stack' ? 'Close-up zoom' : 'Zoom';
+    $$('#vCap button').forEach((b) => b.classList.toggle('on', b.dataset.v === S.vert.capMode));
+  }
+  $('#vLayouts').addEventListener('click', (e) => {
+    const b = e.target.closest('.vlay');
+    if (!b) return;
+    S.vert.layout = b.dataset.id;
+    if (b.dataset.id === 'stack' && S.vert.zoom < 1.3) S.vert.zoom = 1.8;
+    vertChanged();
+  });
+  $$('#vpanel [data-vk] input').forEach((inp) => inp.addEventListener('input', () => {
+    const k = inp.closest('[data-vk]').dataset.vk;
+    S.vert[k] = inp.type === 'color' ? inp.value : +inp.value;
+    vertChanged(false);
+  }));
+  $('#vCap').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-v]');
+    if (!b) return;
+    S.vert.capMode = b.dataset.v;
+    vertChanged();
+  });
+  function vertChanged(full = true) {
+    applyStyle(); drawBg(); syncVPanel();
+    scheduleSave();
+    if (full) renderThumbsSoon(); else { clearTimeout(vertChanged._t); vertChanged._t = setTimeout(renderThumbs, 400); }
   }
 
   const SAFE = {   // 1080x1920 reference, conservative cross-app figures
@@ -457,7 +570,8 @@
   overlay.addEventListener('mousedown', (e) => {
     const p = frameXY(e), b = captionBox();
     const inside = b && p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h;
-    stageDrag = { p0: p, x0: S.style.x, y0: S.style.y, moved: false, inside, snap: snapshot() };
+    const eff = styleFor(S.view);
+    stageDrag = { p0: p, x0: eff.x, y0: eff.y, moved: false, inside, snap: snapshot() };
     const mm = (ev) => {
       if (!stageDrag.inside) return;
       const q = frameXY(ev);
@@ -467,6 +581,7 @@
       overlay.classList.add('dragging');
       S.style.x = Math.round(clamp(stageDrag.x0 + dx / S.W * 100, 0, 100) * 2) / 2;
       S.style.y = Math.round(clamp(stageDrag.y0 + dy / S.H * 100, 2, 98) * 2) / 2;
+      if (S.view === 'vertical' && S.vert.capMode === 'auto') { S.vert.capMode = 'manual'; syncVPanel(); }
       styleChanged(false);
     };
     const up = () => {
@@ -495,6 +610,7 @@
     if ($('#editor').hidden) return;
     const t = video.currentTime || 0;
     if (S.needsDraw || t !== lastT || !video.paused) {
+      if (S.view === 'vertical') drawBg();
       drawOverlay(t);
       if (t !== lastT) {
         $('#tNow').textContent = SS.fmtTime(t, true);
@@ -829,13 +945,13 @@
 
   /* --------------------------------------------------------- undo/redo -- */
   function strip(lines) { return lines.map((l) => ({ words: l.words.map((w) => { const o = { t: w.t, s: +w.s.toFixed(3), e: +w.e.toFixed(3), l: w.l == null ? 0.5 : w.l }; if (w.k) o.k = 1; return o; }), ...(l._dirty ? { _dirty: 1 } : {}) })); }
-  function snapshot() { return JSON.stringify({ lines: strip(S.lines), style: S.style }); }
+  function snapshot() { return JSON.stringify({ lines: strip(S.lines), style: S.style, view: S.view }); }
   function restore(json) {
     const s = JSON.parse(json);
     S.lines = s.lines.map((l) => ({ words: l.words, _id: S.uid++, _dirty: !!l._dirty }));
-    S.style = s.style;
+    if (!s.view || s.view === S.view) S.style = s.style; else S.styles[s.view] = s.style;
     renderer.setLines(S.lines);
-    renderer.setStyle(S.style);
+    applyStyle();
     ensureFont(S.style);
     renderLines(); syncControls(); markLooks();
     S.needsDraw = true;
@@ -870,7 +986,9 @@
         await PUT('/api/projects/' + S.pid, {
           name: $('#projName').value.trim() || 'Untitled',
           transcript: { lines: strip(S.lines) },
-          style: S.style, export: S.exportCfg,
+          style: S.view === 'wide' ? S.style : S.styles.wide,
+          vertical: { settings: S.vert, style: S.view === 'vertical' ? S.style : S.styles.vertical },
+          export: S.exportCfg,
         });
         $('#saveState').textContent = 'Saved';
       } catch (e) { $('#saveState').textContent = 'Not saved: ' + e.message; }
@@ -896,7 +1014,7 @@
   function applyPreset(id) {
     pushUndo();
     S.style = SS.presetStyle(id, S.W > S.H);
-    renderer.setStyle(S.style);
+    applyStyle();
     ensureFont(S.style);
     syncControls(); markLooks();
     S.needsDraw = true;
@@ -927,12 +1045,14 @@
     const frame = new OffscreenCanvas(fw, fh);
     const fx = frame.getContext('2d');
     SS.PRESETS.forEach((p, i) => {
-      const st = SS.presetStyle(p.id, S.W > S.H);
+      let st = SS.presetStyle(p.id, S.W > S.H);
+      if (S.view === 'vertical' && S.geo && S.vert.capMode === 'auto' && S.geo.capY != null) st = { ...st, y: S.geo.capY / 19.2 };
       fx.setTransform(1, 0, 0, 1, 0, 0);
       fx.fillStyle = S.kind === 'audio' ? S.exportCfg.bgColor : '#000';
       fx.fillRect(0, 0, fw, fh);
       try {
-        if (S.kind === 'video' && video.readyState >= 2) fx.drawImage(video, 0, 0, fw, fh);
+        if (S.view === 'vertical' && S.geo) SS.drawVertical(fx, video, S.geo, F);
+        else if (S.kind === 'video' && video.readyState >= 2) fx.drawImage(video, 0, 0, fw, fh);
         else if (S.kind === 'audio' && S.bgImage) {
           const img = S.bgImage, sc = Math.max(fw / img.width, fh / img.height);
           fx.drawImage(img, (fw - img.width * sc) / 2, (fh - img.height * sc) / 2, img.width * sc, img.height * sc);
@@ -974,7 +1094,7 @@
       const m = S.myLooks[+a.dataset.i];
       pushUndo();
       S.style = { ...SS.DEFAULT_STYLE, ...m.style, _custom: m.name };
-      renderer.setStyle(S.style); ensureFont(S.style);
+      applyStyle(); ensureFont(S.style);
       syncControls(); markLooks(); S.needsDraw = true; scheduleSave();
     }
     if (rm) {
@@ -1013,7 +1133,7 @@
   let styleBefore = null;
   function styleChanged(markEdited = true) {
     if (markEdited) { S.style._edited = true; delete S.style._custom; }
-    renderer.setStyle(S.style);
+    applyStyle();
     S.needsDraw = true;
     markLooks();
     updateVisibility();
@@ -1258,10 +1378,13 @@
   function openExport() {
     const dlg = $('#dlgExport');
     const name = ($('#projName').value.trim() || 'captions') + (S.style._preset ? '_' + S.style._preset : '');
+    const canBoth = !$('#viewTabs').hidden;
+    $('#exVersionsRow').hidden = !canBoth;
+    if (!canBoth) $('#exVersions').value = 'this';
     $('#exName').value = name;
     const sizes = [];
     if (S.kind === 'video') {
-      sizes.push([`${S.W}x${S.H}`, `${S.W}×${S.H} (original)`]);
+      sizes.push([`${S.W}x${S.H}`, `${S.W}×${S.H} (${S.view === 'vertical' ? 'vertical' : 'original'})`]);
       const short = Math.min(S.W, S.H);
       for (const target of [1080, 720]) {
         if (short > target) {
@@ -1300,7 +1423,25 @@
     const fmt = $('input[name=fmt]:checked').value;
     if (fmt === 'srt') return exportSRT();
     const [w, h] = $('#exSize').value.split('x').map(Number);
-    await runExport({ fmt, w, h, fps: +$('#exFps').value, quality: $('#exQuality').value, name: $('#exName').value });
+    const base = { fmt, fps: +$('#exFps').value, quality: $('#exQuality').value };
+    const name = $('#exName').value;
+    const info = S.project.media.info || {};
+    const job = (view, suffix) => {
+      const vert = view === 'vertical';
+      const vw = vert ? 1080 : (S.view === 'wide' ? w : info.width), vh = vert ? 1920 : (S.view === 'wide' ? h : info.height);
+      const k = vert && S.view === 'vertical' ? w / 1080 : 1;           // 720p vertical scales the layout
+      const g = vert ? geoFor('vertical') : null;
+      return { ...base, view, w: Math.round(vw * k / 2) * 2, h: Math.round(vh * k / 2) * 2, name: name + suffix,
+        style: styleFor(view), vertical: g && fmt === 'mp4' ? { ...SS.verticalForExport(g), scale: k } : null };
+    };
+    const jobs = $('#exVersions').value === 'both' ? [job('wide', '_wide'), job('vertical', '_vertical')] : [job(S.view, '')];
+    const saved = [];
+    for (const jb of jobs) {
+      const res = await runExport(jb, jobs.length > 1 ? `${jobs.indexOf(jb) + 1}/${jobs.length} ${jb.view}` : '');
+      if (!res) return;
+      saved.push(res);
+    }
+    $('#exMsg').textContent = saved.map((r) => `Saved ${r.name} (${(r.size / 1048576).toFixed(1)} MB)`).join('  ·  ');
   });
 
   function srtTime(t) {
@@ -1337,12 +1478,12 @@
     } catch (e) { toast(e.message, true); }
   }
 
-  async function runExport(o) {
+  async function runExport(o, label = '') {
     const dur = S.duration || video.duration;
     if (!dur) { toast('The video length is unknown - wait for it to load.', true); return; }
     video.pause();
     const N = Math.ceil(dur * o.fps);
-    const st = { ...S.style };
+    const st = { ...(o.style || S.style) };
     await ensureFont(st);
     const prog = $('#exProgress'), bar = $('#exBar'), msg = $('#exMsg');
     prog.hidden = false; bar.style.width = '0%'; msg.textContent = 'Starting the encoder...';
@@ -1353,7 +1494,7 @@
     try {
       const start = await POST('/api/export/start', {
         pid: S.pid, format: o.fmt, width: o.w, height: o.h, fps: o.fps, frames: N,
-        quality: o.quality, name: o.name, bgColor: S.exportCfg.bgColor,
+        quality: o.quality, name: o.name, bgColor: S.exportCfg.bgColor, vertical: o.vertical || null,
       });
       sid = start.id;
       const r = new SS.Renderer();
@@ -1385,7 +1526,7 @@
           const el = (performance.now() - t0) / 1000;
           const rate = sent / el;
           bar.style.width = (sent / N * 100).toFixed(1) + '%';
-          msg.textContent = `Frame ${sent} of ${N}  ·  ${rate.toFixed(0)} fps  ·  about ${Math.max(0, Math.round((N - sent) / rate))} s left`;
+          msg.textContent = `${label ? label + '  ·  ' : ''}Frame ${sent} of ${N}  ·  ${rate.toFixed(0)} fps  ·  about ${Math.max(0, Math.round((N - sent) / rate))} s left`;
         }
       };
       for (let i = 0; i < N; i++) {
@@ -1411,9 +1552,11 @@
       bar.style.width = '100%';
       msg.textContent = `Saved ${res.name}  ·  ${(res.size / 1048576).toFixed(1)} MB  ·  ${res.seconds}s`;
       $('#exOpen').hidden = false; $('#exOpen').dataset.path = res.path;
+      return res;
     } catch (e) {
       if (sid) POST(`/api/export/${sid}/cancel`).catch(() => {});
       msg.textContent = e.message === 'cancelled' ? 'Cancelled.' : 'Export failed: ' + e.message;
+      return null;
     } finally {
       exporting = null;
       $('#exGo').disabled = false;

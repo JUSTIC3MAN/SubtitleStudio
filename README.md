@@ -98,6 +98,37 @@ file looks exactly like what you saw.
 
 ---
 
+## Vertical version (9:16)
+
+For a wide video, the **Vertical 9:16** tab above the preview builds a Reels / TikTok /
+Shorts version of the same captions. Your look carries over: fonts and colours stay,
+and size and placement switch to that look's portrait settings. Pick a layout:
+
+| Layout | What it does | Use it when |
+|---|---|---|
+| **Fit + blur** | The whole frame, with a blurred, darkened copy of itself filling the space. Captions sit in the space underneath. | Nothing may be cut off. This is the most forgiving option. |
+| **Fill** | Full-screen vertical. *Which part to keep* slides the window left or right. | You're near the middle of the shot. A 9:16 crop keeps about a third of a 16:9 frame's width. |
+| **Zoom fit** | The frame enlarged (1.45× by default) with the edges trimmed, on the blur. | You want to read bigger than in Fit, without losing as much as Fill. |
+| **Cinema bars** | The whole frame on a solid colour, black by default. | You want a clean lyric-video look with the captions in the bar. |
+| **Stack** | The wide shot on top and a close-up of it underneath, with captions on the seam. | It's a performance: the room above, your face below. |
+
+**Captions: In the empty space** places them automatically in the band under the
+video, inside the area every app leaves clear: 210 px from the top, 310 px from the
+bottom, the Reels figures. Drag them on the preview and it switches to **Where I put them**.
+
+In **Export**, **Versions → Wide + vertical** renders both files in one go
+(`name_wide.mp4` and `name_vertical.mp4`). The vertical file is drawn by ffmpeg
+from the same numbers the preview uses, including the blur, done at 1/8 size and
+scaled up, so it matches what you saw.
+
+Why these layouts: reframing guides agree that a full-height crop reads as the most
+"native" when the subject stays centred. Blur-fill is the safe default when they
+don't, and stacked panes are the standard for showing two things at once. Most
+"performs better" claims online come without data, which is why you get all five and
+the choice stays yours.
+
+---
+
 ## The recognition engine (why not just Whisper)
 
 RapSubtitles uses faster-whisper large-v3-turbo, which is fast and good. For
@@ -232,6 +263,7 @@ line re-syncs to the audio.
 | `studio/pipeline.py` | The GPU job queue: transcribe, place lyrics, re-sync edited lines. |
 | `studio/exporter.py` | ffmpeg export: burn-in MP4, ProRes 4444 overlay, audio-only video. |
 | `web/renderer.js` | The caption renderer, shared by the preview and the export. |
+| `web/vertical.js` | The 9:16 layouts: one geometry function used by the preview and the ffmpeg export. |
 | `web/presets.js` | Every setting, its control, and the five looks. |
 | `web/app.js`, `web/timeline.js` | The editor. |
 | `web/fonts/` | The 33 caption fonts (OFL / Apache), bundled. |
@@ -255,4 +287,5 @@ line re-syncs to the audio.
 - Caption fonts and creator styles: <https://www.captionplug.com/blog/best-fonts-for-video-captions>, <https://www.clipspeed.ai/blog/best-fonts-for-captions.html>
 - Caption style conventions: <https://recapo.ai/blog/best-caption-styles-for-shorts/>, <https://www.clipspeed.ai/blog/11-caption-styles-ranked-viral-performance-2026.html>
 - Platform safe zones: <https://adaptlypost.com/en/blog/social-media-safe-zones-2026-complete-guide>
+- 16:9 to 9:16 reframing methods: <https://clipspeed.ai/blog/vertical-video-editing-guide.html>, <https://streamyard.com/blog/16-9-to-9-16-video-converter>
 - TikTok Sans (open source, included in the font list): <https://developers.tiktok.com/blog/tiktok-sans-open-source>

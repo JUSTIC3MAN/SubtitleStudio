@@ -65,6 +65,49 @@ def _hex(c: str) -> str:
     return "0x" + c.lstrip("#")[:6] if re.fullmatch(r"#?[0-9a-fA-F]{6}", c) else "0x000000"
 
 
+def vertical_graph(v: dict, info: dict, w: int, h: int, fps: float) -> str:
+    """
+    ffmpeg filters for the 9:16 frame: background (blurred copy or a colour) and
+    one or two panes of the original, at the positions the editor computed.
+    The blur runs at 1/8 size and is scaled back up - the preview does the same.
+    """
+    k = float(v.get("scale") or 1.0)            # 720p export scales the 1080x1920 layout
+    sw_max, sh_max = int(info.get("width") or 1920), int(info.get("height") or 1080)
+
+    def even(x):
+        return max(2, int(round(x / 2.0)) * 2)
+
+    def crop(c):
+        sx = max(0, min(int(c["sx"]), sw_max - 2))
+        sy = max(0, min(int(c["sy"]), sh_max - 2))
+        cw = max(2, min(int(c["sw"]), sw_max - sx) // 2 * 2)
+        ch = max(2, min(int(c["sh"]), sh_max - sy) // 2 * 2)
+        return f"crop={cw}:{ch}:{sx}:{sy}"
+
+    panes = v.get("panes") or []
+    n = len(panes)
+    blur_bg = v.get("bg") == "blur"
+    outs = (["[vb]"] if blur_bg else []) + [f"[v{i}]" for i in range(n)]
+    parts = [f"[0:v]setpts=PTS-STARTPTS,split={len(outs)}{''.join(outs)}" if len(outs) > 1
+             else f"[0:v]setpts=PTS-STARTPTS{outs[0]}"]
+    if blur_bg:
+        sig = max(0.5, float(v.get("blur", 48)) * k / 8)
+        m = round(1 - float(v.get("dim", 0.35)), 3)
+        parts.append(f"[vb]{crop(v['bgCrop'])},scale={even(w / 8)}:{even(h / 8)},gblur=sigma={sig:.2f},"
+                     f"scale={w}:{h},colorchannelmixer=rr={m}:gg={m}:bb={m},setsar=1,format=yuv420p[bg0]")
+    else:
+        parts.append(f"color=c={_hex(v.get('bgColor'))}:s={w}x{h}:r={fps},format=yuv420p[bg0]")
+    last = "bg0"
+    for i, p in enumerate(panes):
+        parts.append(f"[v{i}]{crop(p)},scale={even(p['dw'] * k)}:{even(p['dh'] * k)},setsar=1[p{i}]")
+        nxt = "base" if i == n - 1 else f"t{i}"
+        parts.append(f"[{last}][p{i}]overlay={int(round(p['dx'] * k))}:{int(round(p['dy'] * k))}:shortest=1[{nxt}]")
+        last = nxt
+    if n == 0:
+        parts.append(f"[{last}]null[base]")
+    return ";".join(parts)
+
+
 class ExportSession:
     def __init__(self, opts: dict, src: Path, info: dict, background: Path | None):
         self.id = uuid.uuid4().hex[:12]
@@ -109,10 +152,15 @@ class ExportSession:
                    *media.h264_args(self.quality), "-r", f"{self.fps}",
                    *self._audio_args(info), "-movflags", "+faststart", str(self.out)]
         else:
-            # burn into the original. The overlay is drawn at the video's display size.
+            # burn into the original. The overlay is drawn at the video's display size;
+            # a vertical version first rebuilds the frame with the layout from the editor.
+            if opts.get("vertical"):
+                base = vertical_graph(opts["vertical"], info, self.w, self.h, self.fps)
+            else:
+                base = f"[0:v]setpts=PTS-STARTPTS,scale={self.w}:{self.h},setsar=1[base]"
             cmd = [media.FFMPEG, "-y", "-i", str(src), *frames_in,
                    "-filter_complex",
-                   f"[0:v]setpts=PTS-STARTPTS,scale={self.w}:{self.h},setsar=1[base];"
+                   f"{base};"
                    f"[1:v]setpts=PTS-STARTPTS,format=rgba[ov];"
                    f"[base][ov]overlay=0:0:eof_action=pass:format=auto,format=yuv420p[v]",
                    "-map", "[v]", "-map", "0:a:0?",
